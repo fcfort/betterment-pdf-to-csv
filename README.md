@@ -18,7 +18,7 @@ PDF.
 
 ## On rounding and number of shares
 
-Betterment seems to rounds the number of shares transacted and
+Betterment seems to round the number of shares transacted and
 internally record more precision. I have seen on my statement the
 following:
 
@@ -39,9 +39,9 @@ However, if you use the amount and the price, you get a total of
 
 In another case, I saw this:
 
-Reported starting balance: .005 shares (1 previous transaction)
-Reported total purchases: .010 shares (2 transactions of .005 shares)
-Reported ending balance: .014 shares
+* Reported starting balance: .005 shares (1 previous transaction)
+* Reported total purchases: .010 shares (2 transactions of .005 shares)
+* Reported ending balance: .014 shares
  
 Yikes! Using price and amounts, you get (to 6 decimal places)
 

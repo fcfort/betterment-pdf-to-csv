@@ -1,8 +1,9 @@
 """
-parse a Betterment statement pdf and produce QIF files for import into Moneydanc.e
+Parse a Betterment statement PDF and produce QIF files for import
+into Moneydance or other financial software.
 
+https://github.com/dandrake/betterment-pdf-to-qif
 """
-
 
 import sys
 import subprocess
