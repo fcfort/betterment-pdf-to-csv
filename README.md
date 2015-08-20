@@ -1,10 +1,9 @@
-# Parse Betterment's PDF statements, output QIF
+# Parse Betterment's PDF statements, output CSV
 
 [Betterment](http://betterment.com) is a nice brokerage service but they
 don't provide transaction data in any parseable, structured format. The
-Python script here will parse your quarterly statement PDF and produce
-QIF files suitable for importing into an accounting program. (I use
-Moneydance.)
+Python script here will parse your quarterly statement, deposit and dividend
+PDFs and produce CSV files suitable for importing into an accounting program.
 
 This is super hackish and brittle and this should really just be thought
 of as a starting point, and not as a genuinely usable tool. 
@@ -15,6 +14,11 @@ You'll need Python 3 and the `pdftotext` utility. I use Ubuntu Linux and
 `pdftotext` is available in the `poppler-utils` package. In some other
 OS, you'll need to work out on your own how to extract text from the
 PDF.
+
+## How to run
+
+// Will output to a file called transactions.csv
+python3 betterment-pdf-to-csv.py *.pdf
 
 ## On rounding and number of shares
 
