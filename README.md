@@ -17,8 +17,8 @@ PDF.
 
 ## How to run
 
-// Will output to a file called transactions.csv
-python3 betterment-pdf-to-csv.py *.pdf
+`// Will output to a file called transactions.csv`  
+`python3 betterment-pdf-to-csv.py *.pdf`  
 
 ## On rounding and number of shares
 
