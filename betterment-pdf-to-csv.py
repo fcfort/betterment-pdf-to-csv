@@ -5,11 +5,12 @@ into Moneydance or other financial software.
 https://github.com/dandrake/betterment-pdf-to-qif
 """
 
-import sys
-import subprocess
-import re
-import datetime
 import collections
+import datetime
+import fileinput
+import subprocess
+import sys
+import re
 
 DEBUG = False
     
@@ -28,6 +29,20 @@ ticker_to_name = {
     'VOE': 'Vanguard Mid-Cap Value ETF',
     'VTIP': 'Vanguard Short-Term Inflation-Protected Securities ETF',
     'SHV': 'iShares Short Treasury Bond ETF',
+}
+
+_GOALS = {('BUILD', 'WEALTH'), ('SAFETY', 'NET')}
+
+# Betterment bug with goal names on non-Quarterly Statement PDFs
+new_goals = set()
+for goal in _GOALS:
+    new_goals.add(tuple(word.title() for word in goal) + ('Goal',))
+_GOALS.update(new_goals)
+
+_SHARE_ACTIVITY = {
+    ('Quarterly', 'Activity', 'Detail'),
+    ('Dividend', 'Reinvestment', 'Detail'),
+    ('Transaction', 'Detail'),
 }
 
 def parse_dividend_payment(line):
@@ -54,7 +69,7 @@ def parse_dividend_payment(line):
         raise ValueError
     return ret
     
-def parse_other_activity(line):
+def parse_share_activity(line):
     """tricky thing here is that you have two kinds of lines:
     
     ['Apr', '2', '2015', 'Dividend', 'Reinvestment', 'Stocks', '/', 'VTV', '$83.55', '0.008', '$0.66', '0.592', '$49.48']
@@ -89,31 +104,37 @@ def parse_other_activity(line):
         slash = line.index('/')
         if line[slash - 1] == 'Stocks' or line[slash - 1] == 'Bonds':
             if slash > 1:
+                print('Parsing first half: ' + str(line))
                 ret['date'] = datetime.date(month=mon_to_num[line[0]],
                                             day=int(line[1]),
                                             year=int(line[2]))
                 desc = line[3:slash - 1]
+                ret['desc'] = ' '.join(desc)
                 if 'Reinvestment' in desc:
                     ret['type'] = 'div buy'
                 elif 'Deposit' in desc:
                     ret['type'] = 'buy'
                 elif 'Fee' in desc:
                     ret['type'] = 'fee sell'
-                ret.update(parse_other_activity(line[slash - 1:]))
+                ret.update(parse_share_activity(line[slash - 1:]))
                 return ret
             elif slash == 1:
+                print('Parsing second half: ' + str(line))
                 ret['ticker'] = line[2]
+                ret['raw_share_price'] = line[3].replace('$', '').replace(',', '')
                 ret['share_price'] = line[3].lstrip('-$').replace(',', '')
                 # QIF files don't include negative amounts; they list
                 # everything as positive and use the transaction type to
                 # figure out the rest. So okay to strip minus signs.
+                ret['raw_amount'] = line[5].replace('$', '').replace(',', '')
                 ret['amount'] = line[5].lstrip('-$').replace(',', '')
 
                 # We calculate the number of shares on our own; see
                 # discussion in the README.
                 ret['shares'] = '{:.6f}'.format(float(ret['amount']) /
                                                 float(ret['share_price']))
-
+                ret['raw_shares'] = '{:.6f}'.format(float(ret['raw_amount']) /
+                                                float(ret['raw_share_price']))
                 if abs(float(ret['shares']) - abs(float(line[4]))) >= .001:
                     print('wonky number of shares:')
                     print('PDF says', line[4])
@@ -124,6 +145,7 @@ def parse_other_activity(line):
 
                 # for now, ignore the last two fields (total shares and
                 # total value of that security)
+                print('Got ' + str(ret))
                 return ret
             else:
                 # / in position 0???
@@ -145,14 +167,11 @@ def parse_text(txt):
     trans_type = None
     transactions = []
     for linenum, line in enumerate(txt):
-        if line == ['BUILD', 'WEALTH']:
-            goal = 'build wealth'
+        #if line == ['BUILD', 'WEALTH'] or line == ['SAFETY', 'NET']:
+        if tuple(line) in _GOALS:
+            goal = ' '.join(line[:2]).title()
             trans_type = None
-            if DEBUG: print('build wealth starts line', linenum) 
-        elif line == ['SAFETY', 'NET']:
-            goal = 'safety net'
-            trans_type = None
-            if DEBUG: print('safety net starts on', linenum) 
+            if DEBUG: print(goal + ' starts line', linenum) 
         elif line[:2] == ['CASH', 'ACTIVITY']:
             goal = None
             if DEBUG: print('done with goals line', linenum)
@@ -166,9 +185,11 @@ def parse_text(txt):
                     transactions.append(trans)
                 except ValueError:
                     pass
-            elif trans_type == 'other':
+            elif trans_type == 'share':
                 try:
-                    trans = parse_other_activity(line)
+                    #if DEBUG: print('parsing share line: ' + str(line))
+                    trans = parse_share_activity(line)
+                    if DEBUG: print('got trans:', trans)
                     try:
                         trans_date = trans['date']
                     except KeyError:
@@ -177,7 +198,11 @@ def parse_text(txt):
                         sub_trans_type = trans['type']
                     except KeyError:
                         trans['type'] = sub_trans_type
-                    if DEBUG: print('other trans:', trans)
+                    try:
+                        desc = trans['desc']
+                    except KeyError:
+                        trans['desc'] = desc
+                    if DEBUG: print('share trans:', trans)
                     trans['goal'] = goal
                     transactions.append(trans)
                 except ValueError:
@@ -185,8 +210,9 @@ def parse_text(txt):
 
             if line == ['Dividend', 'Payment', 'Detail']:
                 trans_type = 'dividend'
-            elif line == ['Quarterly', 'Activity', 'Detail']:
-                trans_type = 'other'
+            elif tuple(line) in _SHARE_ACTIVITY:
+                if DEBUG: print('classified line as share: ' + str(line))
+                trans_type = 'share'
 
     # now we want, as we would say in SQL,
     #   SELECT goal, date, SUM(amount)
@@ -206,93 +232,43 @@ def parse_text(txt):
 def fmt_date(t):
     return t['date'].strftime('%m/%d/%Y')
 
-def create_qif(transactions, fn):
-    # the initial space below is necessary!
-    hdr = r""" !Account
-NBetterment {0}
-DBetterment {0}
-TInvst
-^"""
+def create_csv(transactions, filename):
+    with open(filename, 'a') as handle:
+        handle.write(
+            ','.join([
+                'Goal','Date','Ticker','Description','Shares',
+                'Share Price','Amount']) + '\n')
+        for trans in transactions:
+            if 'shares' in trans:
+                handle.write(
+                    ','.join([
+                        trans['goal'], str(trans['date']), trans['ticker'],
+                        trans['desc'], trans['raw_shares'],
+                        trans['raw_share_price'], trans['raw_amount']]) + '\n')
 
-    buysell = r"""!Type:Invst
-D{date}
-N{type}
-Y{security}
-I{price}
-Q{num_shares}
-T{amount}
-O0.00
-^"""
-
-    div = r"""!Type:Invst
-D{date}
-NDiv
-Y{security}
-T{amount}
-O0.00
-L[Investment:Dividends]
-^"""
-
-    fee = r"""!Type:Invst
-D{date}
-NXOut
-PAdmin Fee
-T{amount}
-L[Bank Charge:Service Charges]
-${amount}
-O0.00
-^"""
-
-    bw = [hdr.format('Build Wealth')]
-    sn = [hdr.format('Safety Net')]
-
-    for trans in transactions:
-        if 'div pay' == trans['type']:
-            q = div.format(date=fmt_date(trans),
-                           security=ticker_to_name[trans['ticker']],
-                           amount=trans['amount'])
-        elif 'fee pay' == trans['type']:
-            q = fee.format(date=fmt_date(trans),
-                           amount=trans['amount'])
-        else:
-            if 'buy' in trans['type']:
-                action = 'Buy'
-            elif 'sell' in trans['type']:
-                action = 'Sell'
-            else:
-                print('weird, transaction not dividend, fee, buy, or sell:', trans)
-                raise ValueError
-            q = buysell.format(date=fmt_date(trans),
-                               type=action,
-                               security=ticker_to_name[trans['ticker']],
-                               price=trans['share_price'],
-                               num_shares=trans['shares'],
-                               amount=trans['amount'])
-
-        if trans['goal'] == 'safety net':
-            sn.append(q)
-        elif trans['goal'] == 'build wealth':
-            bw.append(q)
-        else:
-            print('transaction has no goal!', trans)
-            raise ValueError
-
-    with open(fn + '-build_wealth.qif', 'w') as bwf:
-        bwf.write('\n'.join(bw))
-    with open(fn + '-safety_net.qif', 'w') as snf:
-        snf.write('\n'.join(sn))
-
+def empty_file(filename):
+    open(filename, 'w').close()
+    
+def get_text_array(filename):
+    text = subprocess.check_output(
+        ['pdftotext', '-nopgbrk', '-layout', input_file, '-'])
+    return [line.decode('utf-8') for line in text.splitlines()]
 
 if __name__ == '__main__':
     # we want a list of lines, each split on whitespace
-    txt = [line.decode('utf-8') for line in
-           subprocess.check_output(['pdftotext', '-nopgbrk', '-layout', 
-                                    sys.argv[1], '-']).splitlines()]
+    empty_file('transactions.csv')
+    transactions = []
+    for input_file in sys.argv[1:]:
+        print('reading file ' + input_file)
+        txt = get_text_array(input_file)
 
-    with open(sys.argv[1] + '-debug.txt', 'w') as f:
-        f.write('\n'.join([str(line.split()) for line in txt
-                           if not re.match('^\s*$', line)]))
+        if DEBUG:
+            with open(sys.argv[1] + '-debug.txt', 'w') as f:
+                f.write(
+                    '\n'.join([str(line.split()) for line in 
+                    txt if not re.match('^\s*$', line)]))
 
-    create_qif(parse_text([line.split() for line in txt
-                           if not re.match('^\s*$', line)]),
-               sys.argv[1][:-4])
+        transactions.extend(parse_text([
+            line.split() for line in txt if not re.match('^\s*$', line)]))
+
+    create_csv(transactions, 'transactions.csv')
