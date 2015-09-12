@@ -12,7 +12,7 @@ import subprocess
 import sys
 import re
 
-DEBUG = False
+DEBUG = True
     
 mon_to_num = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6, 'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12}
 
@@ -116,6 +116,10 @@ def parse_share_activity(line):
                     ret['type'] = 'buy'
                 elif 'Fee' in desc:
                     ret['type'] = 'fee sell'
+                elif 'Transfer' in desc:
+                    ret['type'] = 'transfer'
+                else:
+                    ret['type'] = 'unknown'
                 ret.update(parse_share_activity(line[slash - 1:]))
                 return ret
             elif slash == 1:
@@ -141,7 +145,7 @@ def parse_share_activity(line):
                     print('transaction:', ret)
 
                 # check if ticker ok
-                ticker_to_name[ret['ticker']]
+                ret['ticker_name'] = ticker_to_name[ret['ticker']]
 
                 # for now, ignore the last two fields (total shares and
                 # total value of that security)
@@ -177,15 +181,7 @@ def parse_text(txt):
             if DEBUG: print('done with goals line', linenum)
 
         if goal is not None:
-            if trans_type == 'dividend':
-                try:
-                    trans = parse_dividend_payment(line)
-                    if DEBUG: print('dividend:', trans)
-                    trans['goal'] = goal
-                    transactions.append(trans)
-                except ValueError:
-                    pass
-            elif trans_type == 'share':
+            if trans_type == 'share':
                 try:
                     #if DEBUG: print('parsing share line: ' + str(line))
                     trans = parse_share_activity(line)
@@ -236,14 +232,14 @@ def create_csv(transactions, filename):
     with open(filename, 'a') as handle:
         handle.write(
             ','.join([
-                'Goal','Date','Ticker','Description','Shares',
+                'Goal','Date','Ticker','Ticker Name','Description','Shares',
                 'Share Price','Amount']) + '\n')
         for trans in transactions:
             if 'shares' in trans:
                 handle.write(
                     ','.join([
                         trans['goal'], str(trans['date']), trans['ticker'],
-                        trans['desc'], trans['raw_shares'],
+                        trans['ticker_name'], trans['desc'], trans['raw_shares'],
                         trans['raw_share_price'], trans['raw_amount']]) + '\n')
 
 def empty_file(filename):
