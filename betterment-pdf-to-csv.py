@@ -2,7 +2,7 @@
 Parse a Betterment statement PDF and produce QIF files for import
 into Moneydance or other financial software.
 
-https://github.com/dandrake/betterment-pdf-to-qif
+https://github.com/fcfort/betterment-pdf-to-csv
 """
 
 import collections
