@@ -12,7 +12,7 @@ import subprocess
 import sys
 import re
 
-DEBUG = True
+DEBUG = False
     
 mon_to_num = {'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6, 'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12}
 
@@ -31,7 +31,7 @@ ticker_to_name = {
     'SHV': 'iShares Short Treasury Bond ETF',
 }
 
-_GOALS = {('BUILD', 'WEALTH'), ('SAFETY', 'NET')}
+_GOALS = {('BUILD', 'WEALTH'), ('SAFETY', 'NET'), ('Traditional', '401(k)', 'Goal')}
 
 # Betterment bug with goal names on non-Quarterly Statement PDFs
 new_goals = set()
@@ -104,7 +104,7 @@ def parse_share_activity(line):
         slash = line.index('/')
         if line[slash - 1] == 'Stocks' or line[slash - 1] == 'Bonds':
             if slash > 1:
-                print('Parsing first half: ' + str(line))
+                # print('Parsing first half: ' + str(line))
                 ret['date'] = datetime.date(month=mon_to_num[line[0]],
                                             day=int(line[1]),
                                             year=int(line[2]))
@@ -123,7 +123,7 @@ def parse_share_activity(line):
                 ret.update(parse_share_activity(line[slash - 1:]))
                 return ret
             elif slash == 1:
-                print('Parsing second half: ' + str(line))
+                # print('Parsing second half: ' + str(line))
                 ret['ticker'] = line[2]
                 ret['raw_share_price'] = line[3].replace('$', '').replace(',', '')
                 ret['share_price'] = line[3].lstrip('-$').replace(',', '')
@@ -149,7 +149,7 @@ def parse_share_activity(line):
 
                 # for now, ignore the last two fields (total shares and
                 # total value of that security)
-                print('Got ' + str(ret))
+                # print('Got ' + str(ret))
                 return ret
             else:
                 # / in position 0???
